@@ -130,17 +130,3 @@ npm start
 
 This project is open source and available under the MIT License.
 
-## Support
-
-For issues or questions:
-1. Check the troubleshooting section above
-2. Review the code comments in the components
-3. Check Google's Gemini documentation at https://ai.google.dev/docs
-
-## Next Steps
-
-After setting up the project, you can:
-- Customize the styling in `app/globals.css`
-- Modify the AI prompts in the API routes
-- Add more features like user authentication or saved itineraries
-- Deploy to Vercel for free hosting
