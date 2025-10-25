@@ -1,6 +1,7 @@
 # AI Travel Guide
 
 A personalized travel itinerary generator powered by Google's Gemini AI. Create custom travel plans, discover suggested trips, and get real-time weather information for your destinations.
+🌐 **Live Demo:** [ai-tour-planner-fawn.vercel.app](https://ai-tour-planner-fawn.vercel.app)
 
 ## Features
 
@@ -25,14 +26,9 @@ Before you begin, make sure you have:
 2. **Install dependencies**
   
    npm install
-   # or
-   npm install
    
-
 3. **Set up environment variables**
    - Copy `.env.example` to `.env.local`
-   
-   cp .env.example .env.local
    
    - Add your Google Gemini API key to `.env.local`:
    
