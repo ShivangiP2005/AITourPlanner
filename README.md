@@ -1,7 +1,7 @@
 # AI Travel Guide
 
 A personalized travel itinerary generator powered by Google's Gemini AI. Create custom travel plans, discover suggested trips, and get real-time weather information for your destinations.
-🌐 **Live Demo:** [ai-tour-planner-fawn.vercel.app](https://ai-tour-planner-fawn.vercel.app)
+🌐 **Live Demo:** https://ai-tour-planner-dd5nhokv8-shivangi.vercel.app?_vercel_share=QaZbqf43cZX7hYbtkEQxA07wYH9SO9iM
 
 ## Features
 
