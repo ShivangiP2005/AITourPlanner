@@ -20,33 +20,31 @@ Before you begin, make sure you have:
 ## Installation
 
 1. **Clone or extract the project**
-   \`\`\`bash
    cd ai-travel-guide
-   \`\`\`
 
 2. **Install dependencies**
-   \`\`\`bash
+  
    npm install
    # or
-   pnpm install
-   \`\`\`
+   npm install
+   
 
 3. **Set up environment variables**
    - Copy `.env.example` to `.env.local`
-   \`\`\`bash
+   
    cp .env.example .env.local
-   \`\`\`
+   
    - Add your Google Gemini API key to `.env.local`:
-   \`\`\`
+   
    GOOGLE_GENERATIVE_AI_API_KEY=your_api_key_here
-   \`\`\`
+   
 
 4. **Run the development server**
-   \`\`\`bash
+   
    npm run dev
    # or
-   pnpm dev
-   \`\`\`
+   npm dev
+   
 
 5. **Open your browser**
    - Navigate to [http://localhost:3000](http://localhost:3000)
@@ -73,9 +71,7 @@ Before you begin, make sure you have:
 
 Create a `.env.local` file in the root directory with the following:
 
-\`\`\`
 GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key_here
-\`\`\`
 
 **Important:** Never commit your `.env.local` file to version control. It's already in `.gitignore`.
 
@@ -96,10 +92,8 @@ The app includes the following API endpoints:
 
 ## Building for Production
 
-\`\`\`bash
 npm run build
 npm start
-\`\`\`
 
 ## Troubleshooting
 
