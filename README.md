@@ -124,11 +124,7 @@ npm start
 - **TypeScript** - Type safety
 - **Tailwind CSS** - Styling
 - **Google Gemini API** - AI-powered content generation (free!)
-- **Vercel AI SDK** - Unified AI interface
 - **React Hook Form** - Form management
-- **Zod** - Schema validation
-- **Recharts** - Data visualization
-- **Sonner** - Toast notifications
 
 ## License
 
