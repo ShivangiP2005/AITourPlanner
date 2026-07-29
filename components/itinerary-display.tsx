@@ -22,7 +22,7 @@ export interface ItineraryData {
   localPhrases: { phrase: string; meaning: string }[]
 }
 
-export default function ItineraryDisplay({ data }: { data: ItineraryData }) {
+export default function ItineraryDisplay({ data, destination }: { data: ItineraryData; destination: string }) {
   const [showWeather, setShowWeather] = useState(false)
 
   const handleDownload = () => {
@@ -61,7 +61,7 @@ export default function ItineraryDisplay({ data }: { data: ItineraryData }) {
         </div>
       </div>
 
-      {showWeather && <WeatherDisplay destination={data.destination} />}
+      {showWeather && <WeatherDisplay destination={destination} />}
 
       {data.days.map((day) => (
         <Card key={day.day} className="p-6">
