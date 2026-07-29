@@ -27,29 +27,32 @@ export async function POST(request: Request) {
       )
     }
 
+    // Work out how many days the trip actually is
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+    const numberOfDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+
     const client = new GoogleGenerativeAI(apiKey)
     const model = client.getGenerativeModel({ model: "gemini-flash-latest" })
 
     const systemPrompt = `You are an expert travel guide AI. Generate detailed, personalized travel itineraries.
-Format your response with clear sections and use markdown formatting.
-Include day-by-day activities, restaurant recommendations, estimated costs, local tips, and transportation advice.
-Be specific with times, locations, and practical information.`
+Always format using proper markdown: use "##" for each day header, "-" for bullet points, and "**bold**" for emphasis.
+Be specific with times, locations, and practical information. Keep each day concise but complete —
+prioritize covering all days over writing long paragraphs for fewer days.`
 
-    const userPrompt = `Create a detailed day-by-day travel itinerary for:
+    const userPrompt = `Create a ${numberOfDays}-day travel itinerary for:
 - Destination: ${destination}
-- Travel Dates: ${startDate} to ${endDate}
+- Dates: ${startDate} to ${endDate} (${numberOfDays} days total)
 - Interests: ${interests.join(", ")}
 - Budget Level: ${budget}
 
-Please provide:
-1. A day-by-day breakdown with specific activities and timings
-2. Restaurant recommendations for each day with estimated costs
-3. Total estimated costs for activities and meals
-4. Local tips and transportation advice
-5. Best times to visit attractions
-6. Emergency contacts and useful phrases
+For EACH of the ${numberOfDays} days, include:
+- 2-4 key activities with approximate times
+- One restaurant recommendation with estimated cost
+- One practical tip (transport, local custom, or timing)
 
-Format clearly with day headers and bullet points.`
+End with a short section: total estimated budget, emergency contacts, and 2-3 key local phrases.
+Keep it scannable — short bullets, not long paragraphs.`
 
     const stream = await model.generateContentStream({
       contents: [
@@ -60,7 +63,7 @@ Format clearly with day headers and bullet points.`
       ],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 2500,
+        maxOutputTokens: Math.min(8000, numberOfDays * 500 + 800),
       },
     })
 
@@ -68,8 +71,6 @@ Format clearly with day headers and bullet points.`
     const customStream = new ReadableStream({
       async start(controller) {
         try {
-          controller.enqueue(encoder.encode("🤔 **AI is thinking about your perfect itinerary...**\n\n---\n\n"))
-
           for await (const chunk of stream.stream) {
             const text = chunk.text()
             if (text) {
