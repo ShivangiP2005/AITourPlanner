@@ -10,6 +10,7 @@ export default function ItineraryBuilder() {
   const [itinerary, setItinerary] = useState<ItineraryData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [destination, setDestination] = useState("")
 
   const handleGenerateItinerary = async (formData: {
     destination: string
@@ -21,6 +22,7 @@ export default function ItineraryBuilder() {
     setLoading(true)
     setItinerary(null)
     setError(null)
+    setDestination(formData.destination)
 
     try {
       const response = await fetch("/api/generate-itinerary", {
@@ -62,7 +64,7 @@ export default function ItineraryBuilder() {
           </Card>
         )}
         {loading && <ChainOfThought />}
-        {itinerary && !loading && <ItineraryDisplay data={itinerary} />}
+       {itinerary && !loading && <ItineraryDisplay data={itinerary} destination={destination} />}
         {!itinerary && !loading && !error && (
           <Card className="p-12 text-center">
             <p className="text-muted-foreground text-lg">Fill in your travel preferences to get started</p>
