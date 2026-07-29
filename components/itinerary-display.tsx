@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import WeatherDisplay from "./weather-display"
 
 interface ItineraryDisplayProps {
@@ -21,40 +23,6 @@ export default function ItineraryDisplay({ content, destination }: ItineraryDisp
     document.body.appendChild(element)
     element.click()
     document.body.removeChild(element)
-  }
-
-  const formatContent = (text: string) => {
-    return text.split("\n").map((line, idx) => {
-      if (line.startsWith("##")) {
-        return (
-          <h2 key={idx} className="text-xl font-bold mt-6 mb-3">
-            {line.replace(/^#+\s*/, "")}
-          </h2>
-        )
-      }
-      if (line.startsWith("#")) {
-        return (
-          <h3 key={idx} className="text-lg font-semibold mt-4 mb-2">
-            {line.replace(/^#+\s*/, "")}
-          </h3>
-        )
-      }
-      if (line.startsWith("-") || line.startsWith("•")) {
-        return (
-          <li key={idx} className="ml-4 mb-1">
-            {line.replace(/^[-•]\s*/, "")}
-          </li>
-        )
-      }
-      if (line.trim() === "") {
-        return <div key={idx} className="h-2" />
-      }
-      return (
-        <p key={idx} className="mb-2 leading-relaxed">
-          {line}
-        </p>
-      )
-    })
   }
 
   return (
@@ -84,7 +52,7 @@ export default function ItineraryDisplay({ content, destination }: ItineraryDisp
           </div>
         </div>
         <div className="prose prose-sm max-w-none dark:prose-invert">
-          <div className="text-foreground leading-relaxed">{formatContent(content)}</div>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         </div>
       </Card>
     </div>
