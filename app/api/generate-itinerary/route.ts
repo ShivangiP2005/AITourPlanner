@@ -8,8 +8,7 @@ export async function POST(request: Request) {
       return new Response(
         JSON.stringify({
           error: "API Configuration Error",
-          details:
-            "GOOGLE_GENERATIVE_AI_API_KEY environment variable is not set. Please add your Google Gemini API key in the Vars section.",
+          details: "GOOGLE_GENERATIVE_AI_API_KEY environment variable is not set.",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
       )
@@ -27,85 +26,73 @@ export async function POST(request: Request) {
       )
     }
 
-    // Work out how many days the trip actually is
     const start = new Date(startDate)
     const end = new Date(endDate)
     const numberOfDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
 
     const client = new GoogleGenerativeAI(apiKey)
-    const model = client.getGenerativeModel({ model: "gemini-flash-latest" })
+    const model = client.getGenerativeModel({
+      model: "gemini-flash-latest",
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: Math.min(8000, numberOfDays * 500 + 800),
+        responseMimeType: "application/json",
+      },
+    })
 
-    const systemPrompt = `You are an expert travel guide AI. Generate detailed, personalized travel itineraries.
-Always format using proper markdown: use "##" for each day header, "-" for bullet points, and "**bold**" for emphasis.
-Be specific with times, locations, and practical information. Keep each day concise but complete —
-prioritize covering all days over writing long paragraphs for fewer days.`
-
-    const userPrompt = `Create a ${numberOfDays}-day travel itinerary for:
+    const prompt = `You are an expert travel guide. Create a ${numberOfDays}-day travel itinerary for:
 - Destination: ${destination}
 - Dates: ${startDate} to ${endDate} (${numberOfDays} days total)
 - Interests: ${interests.join(", ")}
 - Budget Level: ${budget}
 
-For EACH of the ${numberOfDays} days, include:
-- 2-4 key activities with approximate times
-- One restaurant recommendation with estimated cost
-- One practical tip (transport, local custom, or timing)
+Return ONLY valid JSON matching exactly this structure, no markdown, no extra text:
 
-End with a short section: total estimated budget, emergency contacts, and 2-3 key local phrases.
-Keep it scannable — short bullets, not long paragraphs.`
-
-    const stream = await model.generateContentStream({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }],
-        },
+{
+  "destination": "string",
+  "summary": "one sentence trip summary",
+  "days": [
+    {
+      "day": 1,
+      "title": "short title for the day",
+      "activities": [
+        { "time": "9:00 AM", "activity": "description", "location": "place name" }
       ],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: Math.min(8000, numberOfDays * 500 + 800),
-      },
-    })
+      "restaurant": { "name": "string", "cuisine": "string", "estimatedCost": "string e.g. €20-30" },
+      "tip": "one practical tip for this day"
+    }
+  ],
+  "totalBudget": "estimated total budget range for the whole trip",
+  "emergencyContacts": "relevant local emergency number(s)",
+  "localPhrases": [
+    { "phrase": "local language phrase", "meaning": "english meaning" }
+  ]
+}
 
-    const encoder = new TextEncoder()
-    const customStream = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of stream.stream) {
-            const text = chunk.text()
-            if (text) {
-              controller.enqueue(encoder.encode(text))
-            }
-          }
+Include all ${numberOfDays} days. Each day should have 2-4 activities.`
 
-          controller.close()
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : "Unknown streaming error"
-          controller.enqueue(encoder.encode(`\n\n❌ **Error**: ${errorMsg}`))
-          controller.close()
-        }
-      },
-    })
+    const result = await model.generateContent(prompt)
+    const responseText = result.response.text()
 
-    return new Response(customStream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-      },
-    })
-  } catch (error) {
-    console.error("[v0] API Error:", error)
-
-    let errorMessage = "Unknown error"
-    if (error instanceof Error) {
-      errorMessage = error.message
+    let itineraryData
+    try {
+      itineraryData = JSON.parse(responseText)
+    } catch {
+      return new Response(
+        JSON.stringify({
+          error: "Failed to parse itinerary",
+          details: "The AI response was not valid JSON. Please try again.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      )
     }
 
+    return Response.json(itineraryData)
+  } catch (error) {
+    console.error("[v0] API Error:", error)
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
     return new Response(
-      JSON.stringify({
-        error: "Failed to generate itinerary",
-        details: errorMessage,
-      }),
+      JSON.stringify({ error: "Failed to generate itinerary", details: errorMessage }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     )
   }
