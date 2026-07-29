@@ -74,6 +74,7 @@ export default function ItineraryForm({ onSubmit, loading }: ItineraryFormProps)
           <input
             type="date"
             value={endDate}
+            min={startDate || undefined}
             onChange={(e) => setEndDate(e.target.value)}
             className="w-full px-4 py-2 border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             disabled={loading}
