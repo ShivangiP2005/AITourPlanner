@@ -1,122 +1,211 @@
-# AI Travel Guide
+# 🌍 AI Tour Planner
 
-A personalized travel itinerary generator powered by Google's Gemini AI. Create custom travel plans, discover suggested trips, and get real-time weather information for your destinations.
-🌐 **Live Demo:** https://ai-tour-planner-dd5nhokv8-shivangi.vercel.app?_vercel_share=QaZbqf43cZX7hYbtkEQxA07wYH9SO9iM
+> An intelligent travel itinerary generator powered by Google Gemini AI — with real-time streaming, automatic model failover, and smart caching.
 
-## Features
+🌐 **Live Demo:** [ai-tour-planner on Vercel](https://ai-tour-planner-dd5nhokv8-shivangi.vercel.app?_vercel_share=QaZbqf43cZX7hYbtkEQxA07wYH9SO9iM)
 
-- **Create Custom Itineraries** - Build personalized travel plans with AI-powered suggestions
-- **Suggested Trips** - Explore curated travel destinations with detailed information
-- **Weather Integration** - Check real-time weather for your travel destinations
-- **Chain of Thought Reasoning** - See how the AI generates recommendations step-by-step
-- **Responsive Design** - Works seamlessly on desktop and mobile devices
+---
 
-## Prerequisites
+## ✨ Features
 
-Before you begin, make sure you have:
-- Node.js 18+ installed
-- npm or pnpm package manager
-- A free Google Gemini API key (get one at https://ai.google.dev/)
+| Feature | Description |
+|---|---|
+| 🗺️ **Custom Itinerary Builder** | Generate day-by-day travel plans tailored to your destination, dates, interests, and budget |
+| ⚡ **Real-Time Streaming** | Watch your itinerary build progressively, day by day, as the AI generates it |
+| 🔄 **Automatic Model Fallback** | If the primary Gemini model hits a quota limit or is deprecated, the app silently tries the next model in a priority chain |
+| 💾 **Smart Response Caching** | Repeat requests for the same trip are served instantly from in-memory cache — zero API calls |
+| 🌤️ **Live Weather** | Get real-time weather data for any destination |
+| ✈️ **Suggested Trips** | Browse curated AI-generated trip ideas |
+| 📥 **Download Itinerary** | Export your generated itinerary as a `.txt` file |
+| 🌙 **Dark Mode** | Full theme support with `next-themes` |
+| 📱 **Responsive Design** | Mobile-first, works seamlessly on all screen sizes |
 
-## Installation
+---
 
-1. **Clone or extract the project**
-   cd ai-travel-guide
+## 🏗️ Architecture
 
-2. **Install dependencies**
-  
-   npm install
-   
-3. **Set up environment variables**
-   - Copy `.env.example` to `.env.local`
-   
-   - Add your Google Gemini API key to `.env.local`:
-   
-   GOOGLE_GENERATIVE_AI_API_KEY=your_api_key_here
-   
+```
+app/
+├── page.tsx                    ← Main page with tabs
+├── layout.tsx                  ← Global layout + font + theme
+├── globals.css                 ← Global styles
+└── api/
+    ├── generate-itinerary/     ← Streaming Gemini generation + fallback + cache
+    ├── suggested-trips/        ← Curated trip list
+    └── weather/                ← Real-time weather data
 
-4. **Run the development server**
-   
-   npm run dev
-   # or
-   npm dev
-   
+components/
+├── itinerary-builder.tsx       ← Form + stream reader + progressive render logic
+├── itinerary-display.tsx       ← Day-by-day itinerary UI (safely handles partial data)
+├── itinerary-form.tsx          ← Trip parameters form
+├── chain-of-thought.tsx        ← Live progress bar + "AI is thinking" state
+├── suggested-trips.tsx         ← Curated trips tab
+├── trip-card.tsx               ← Individual trip card
+├── weather-display.tsx         ← Live weather widget
+└── header.tsx                  ← Site header
 
-5. **Open your browser**
-   - Navigate to [http://localhost:3000](http://localhost:3000)
+lib/
+└── gemini.ts                   ← Primary model + fallback model priority chain
+```
 
-## Usage
+---
 
-### Create Itinerary
-1. Click on the "Create Itinerary" tab
-2. Fill in your travel details:
-   - Destination
-   - Travel dates
-   - Budget
-   - Interests/Activities
-3. Click "Generate Itinerary"
-4. View your personalized travel plan with day-by-day activities
+## 🤖 How the AI Generation Works
 
-### Suggested Trips
-1. Click on the "Suggested Trips" tab
-2. Browse curated travel destinations
-3. Click on a trip card to see more details
-4. Check weather information for each destination
+### Streaming Response
+Rather than waiting for the entire itinerary to complete, the API route:
+1. Calls `model.generateContentStream()` on the Gemini API
+2. Pipes the stream directly to the browser as it arrives
+3. The frontend reads the stream chunk by chunk, progressively parsing and rendering each day
 
-## Environment Variables
+### Automatic Model Fallback Chain
+Defined in `lib/gemini.ts`, the app tries models in priority order:
+```
+gemini-3.5-flash → gemini-3.5-flash-lite → gemini-flash-latest → gemini-3.6-flash
+```
+If any model returns a `429 (Quota Exceeded)` or `404 (Model Deprecated)`, the next model in the chain is tried automatically — completely transparent to the user.
 
-Create a `.env.local` file in the root directory with the following:
+### In-Memory Cache
+Itineraries are cached for 24 hours using a normalized key of `destination + dates + interests + budget`. Cache hits respond in ~30–50ms with zero API consumption.
 
-GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key_here
+---
 
-**Important:** Never commit your `.env.local` file to version control. It's already in `.gitignore`.
+## 🚀 Getting Started
 
-## Getting Your Free Gemini API Key
+### Prerequisites
+- **Node.js 18+**
+- **npm** package manager
+- A free **Google Gemini API key** → [Get one at Google AI Studio](https://aistudio.google.com/app/apikey)
 
-1. Go to [Google AI Studio](https://ai.google.dev/)
-2. Click "Get API Key"
-3. Create a new API key for free
-4. Copy the key and paste it into your `.env.local` file
+### 1. Clone the repo
+```bash
+git clone https://github.com/ShivangiP2005/AITourPlanner.git
+cd AITourPlanner
+```
 
-## API Routes
+### 2. Install dependencies
+```bash
+npm install
+```
 
-The app includes the following API endpoints:
+### 3. Set up environment variables
 
-- `POST /api/generate-itinerary` - Generate a custom travel itinerary
-- `GET /api/suggested-trips` - Get suggested travel destinations
-- `GET /api/weather` - Get weather information for a location
+Create a `.env` file in the project root:
+```env
+GOOGLE_GENERATIVE_AI_API_KEY=your_api_key_here
 
-## Building for Production
+# Optional: Override the primary model (defaults to gemini-3.5-flash)
+GEMINI_MODEL=gemini-3.5-flash
+```
 
+### 4. Run the development server
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## ⚙️ Environment Variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `GOOGLE_GENERATIVE_AI_API_KEY` | ✅ Yes | — | Your Google Gemini API key |
+| `GEMINI_MODEL` | ❌ No | `gemini-3.5-flash` | Primary model to use. App will auto-fallback if this one is unavailable. |
+
+> **Security:** Never commit `.env` to version control. It's already in `.gitignore`.
+
+---
+
+## 📡 API Routes
+
+### `POST /api/generate-itinerary`
+Generates and streams a travel itinerary.
+
+**Request Body:**
+```json
+{
+  "destination": "Tokyo",
+  "startDate": "2026-10-01",
+  "endDate": "2026-10-07",
+  "interests": ["Food", "Culture", "History"],
+  "budget": "Medium"
+}
+```
+
+**Response:** Streaming plain text (JSON, chunked) — read progressively by the frontend.
+
+**Headers in response:**
+- `X-Model-Used` — which Gemini model was used
+- `X-Cache` — `HIT` if served from cache, absent if freshly generated
+
+---
+
+### `GET /api/suggested-trips`
+Returns a list of curated, AI-generated trip suggestions.
+
+---
+
+### `GET /api/weather?location={city}`
+Returns current weather data for the given location.
+
+---
+
+## 🧩 Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | [Next.js 16](https://nextjs.org/) (App Router) |
+| Language | TypeScript |
+| Styling | Tailwind CSS v4 |
+| AI | [Google Gemini API](https://ai.google.dev/) via `@google/generative-ai` |
+| UI Components | [shadcn/ui](https://ui.shadcn.com/) + Radix UI |
+| Forms | React Hook Form + Zod |
+| Icons | Lucide React |
+| Theming | next-themes |
+| Deployment | [Vercel](https://vercel.com/) |
+
+---
+
+## 🛠️ Troubleshooting
+
+### `API key not found` error
+- Make sure `.env` exists in the project root
+- Verify `GOOGLE_GENERATIVE_AI_API_KEY` is set correctly
+- Restart the dev server after changes: `npm run dev`
+
+### `429 Too Many Requests` / Quota exceeded
+- You've exhausted the free tier limit (20 requests/day per model)
+- The app **automatically tries fallback models** — so this usually resolves itself
+- Otherwise, wait until the next day for quota to reset (UTC midnight)
+- For production usage, enable billing at [Google AI Studio](https://aistudio.google.com/)
+
+### Itinerary shows partial data or stops early
+- This is normal during streaming — the progressive display catches up as chunks arrive
+- If it consistently fails, try a shorter trip (3–5 days) to rule out token limits
+
+### Build errors
+```bash
+npm install          # ensure all deps are installed
+npm run build        # check for TypeScript errors
+```
+
+---
+
+## 📦 Building for Production
+
+```bash
 npm run build
 npm start
+```
 
-## Troubleshooting
+Or deploy directly to **Vercel** by connecting your GitHub repo — zero config required.
 
-### "API key not found" error
-- Make sure you've created `.env.local` file
-- Verify your Gemini API key is correctly set
-- Restart the development server after adding the API key
+> **Note on Vercel Hobby plan:** The app uses `maxDuration = 60` in the API route. Fluid Compute on Vercel supports up to 300s, and streaming keeps the connection alive regardless of individual function timeout limits.
 
-### "Rate limit exceeded" error
-- You've hit Gemini's rate limits
-- Wait a few moments before making another request
-- Check your usage at [Google AI Studio](https://ai.google.dev/)
+---
 
-### Styling issues
-- Clear your browser cache
-- Restart the development server
-- Make sure all dependencies are installed: `npm install`
+## 📄 License
 
-## Technologies Used
-
-- **Next.js 16** - React framework
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Styling
-- **Google Gemini API** - AI-powered content generation (free!)
-- **React Hook Form** - Form management
-
-## License
-
-This project is open source and available under the MIT License.
-
+This project is open source and available under the [MIT License](LICENSE).
