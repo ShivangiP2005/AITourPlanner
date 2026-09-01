@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { GEMINI_MODEL } from "@/lib/gemini"
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
     const tokenBudget = Math.min(8000, Math.max(2000, numberOfDays * 600 + 1200))
 
     const model = client.getGenerativeModel({
-      model: "gemini-flash-latest",
+      model: GEMINI_MODEL,
       generationConfig: {
         temperature: 0.7,
         maxOutputTokens: tokenBudget,
