@@ -2,7 +2,7 @@
 
 > An intelligent travel itinerary generator powered by Google Gemini AI — with real-time streaming, automatic model failover, and smart caching.
 
-🌐 **Live Demo:** [ai-tour-planner on Vercel](https://ai-tour-planner-dd5nhokv8-shivangi.vercel.app?_vercel_share=QaZbqf43cZX7hYbtkEQxA07wYH9SO9iM)
+🌐 **Live Demo:** [ai-tour-planner on Vercel](https://ai-tour-planner-fawn.vercel.app/)
 
 ---
 
