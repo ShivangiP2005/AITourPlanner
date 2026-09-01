@@ -27,7 +27,7 @@ export default function ItineraryBuilder() {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => {
       controller.abort()
-    }, 20000) // 20 second client-side timeout
+    }, 11000) // 11 second client-side timeout aligned with Vercel Hobby 10s limit
 
     try {
       const response = await fetch("/api/generate-itinerary", {

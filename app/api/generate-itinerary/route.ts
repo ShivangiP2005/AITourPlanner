@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import { GEMINI_MODEL } from "@/lib/gemini"
 
+// Setting maxDuration to 60 is future-proof for Pro plans, but note that the
+// Vercel Hobby (free) plan strictly enforces a 10-second serverless execution limit.
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
 
@@ -53,6 +55,10 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMsg = "Re
 }
 
 export async function POST(request: Request) {
+  const startTime = Date.now()
+  // Total time budget (8.5s) to safely return clean JSON before Vercel's 10s Hobby limit
+  const TOTAL_BUDGET_MS = 8500
+
   try {
     if (!apiKey) {
       return new Response(
@@ -114,7 +120,7 @@ export async function POST(request: Request) {
 
     const prompt = buildPrompt(destination, startDate, endDate, interests, budget, numberOfDays)
 
-    async function generateAndValidate(timeoutMs = 12000) {
+    async function generateAndValidate(timeoutMs: number) {
       const result = await withTimeout(
         model.generateContent(prompt),
         timeoutMs,
@@ -132,20 +138,37 @@ export async function POST(request: Request) {
     }
 
     let itineraryData
+    const firstAttemptBudget = Math.max(1000, Math.min(7000, TOTAL_BUDGET_MS - (Date.now() - startTime)))
+
     try {
-      // First attempt: capped at 12s
-      itineraryData = await generateAndValidate(12000)
+      // First attempt with up to 7.0s timeout
+      itineraryData = await generateAndValidate(firstAttemptBudget)
     } catch (firstError) {
-      console.error("[generate-itinerary] First attempt failed, retrying once:", firstError)
-      try {
-        // Second attempt: capped at 12s
-        itineraryData = await generateAndValidate(12000)
-      } catch (secondError) {
-        console.error("[generate-itinerary] Retry also failed:", secondError)
+      const elapsed = Date.now() - startTime
+      const remainingMs = TOTAL_BUDGET_MS - elapsed
+      console.warn(`[generate-itinerary] First attempt failed after ${elapsed}ms:`, firstError)
+
+      // Only retry if we have meaningful time left (at least 2.5 seconds)
+      if (remainingMs >= 2500) {
+        console.log(`[generate-itinerary] Retrying with remaining budget of ${remainingMs}ms...`)
+        try {
+          itineraryData = await generateAndValidate(remainingMs - 300)
+        } catch (secondError) {
+          console.error("[generate-itinerary] Retry also failed:", secondError)
+          return new Response(
+            JSON.stringify({
+              error: "Failed to generate itinerary",
+              details: "The AI took too long or had trouble creating this itinerary. Please try again.",
+            }),
+            { status: 504, headers: { "Content-Type": "application/json" } },
+          )
+        }
+      } else {
+        console.warn(`[generate-itinerary] Insufficient time remaining (${remainingMs}ms) for retry within 10s budget.`)
         return new Response(
           JSON.stringify({
-            error: "Failed to generate itinerary",
-            details: "The AI took too long or had trouble creating this itinerary. Please try again.",
+            error: "Request timed out",
+            details: "The AI took too long to generate your itinerary. Please try again.",
           }),
           { status: 504, headers: { "Content-Type": "application/json" } },
         )
