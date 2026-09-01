@@ -1,11 +1,27 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
-import { GEMINI_MODEL } from "@/lib/gemini"
+import { GEMINI_MODEL, FALLBACK_MODELS } from "@/lib/gemini"
 
 // Export maxDuration = 60 for Vercel functions (Fluid compute allows up to 60s/300s)
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
 
 const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+
+// In-memory cache for itineraries (24-hour TTL)
+interface CacheEntry {
+  text: string
+  timestamp: number
+}
+
+const itineraryCache = new Map<string, CacheEntry>()
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+function getCacheKey(destination: string, startDate: string, endDate: string, interests: string[], budget: string): string {
+  const normDest = destination.toLowerCase().trim()
+  const normInterests = [...interests].map((i) => i.toLowerCase().trim()).sort().join(",")
+  const normBudget = budget.toLowerCase().trim()
+  return `${normDest}|${startDate}|${endDate}|${normInterests}|${normBudget}`
+}
 
 function buildPrompt(destination: string, startDate: string, endDate: string, interests: string[], budget: string, numberOfDays: number) {
   return `You are an expert travel guide. Create a travel itinerary for:
@@ -44,20 +60,7 @@ Keep descriptions punchy and concise (1-2 sentences per activity) for fast and r
 Remember: "days" array length must be EXACTLY ${numberOfDays}. Each day should have 2-3 activities. Be concise.`
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMsg = "Request timed out"): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(timeoutMsg)), timeoutMs),
-    ),
-  ])
-}
-
 export async function POST(request: Request) {
-  const startTime = Date.now()
-  // Total time budget of 25s safely within Vercel's configured duration
-  const TOTAL_BUDGET_MS = 25000
-
   try {
     if (!apiKey) {
       return new Response(
@@ -104,83 +107,144 @@ export async function POST(request: Request) {
       )
     }
 
-    console.log(`[generate-itinerary] Generating ${numberOfDays}-day trip to "${destination}" using model "${GEMINI_MODEL}"...`)
+    // Check in-memory cache first to avoid consuming API quota for repeated trips
+    const cacheKey = getCacheKey(destination, startDate, endDate, interests, budget)
+    const cached = itineraryCache.get(cacheKey)
+
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      console.log(`[generate-itinerary] CACHE HIT for "${destination}" (${numberOfDays} days)! Serving immediately from cache.`)
+      
+      const encoder = new TextEncoder()
+      const cachedText = cached.text
+      const chunkSize = Math.max(80, Math.floor(cachedText.length / 15))
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            for (let i = 0; i < cachedText.length; i += chunkSize) {
+              const chunk = cachedText.slice(i, i + chunkSize)
+              controller.enqueue(encoder.encode(chunk))
+              await new Promise((resolve) => setTimeout(resolve, 20))
+            }
+            controller.close()
+          } catch (err) {
+            controller.error(err)
+          }
+        },
+      })
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "X-Cache": "HIT",
+        },
+      })
+    }
+
+    console.log(`[generate-itinerary] CACHE MISS. Generating ${numberOfDays}-day trip to "${destination}"...`)
 
     const client = new GoogleGenerativeAI(apiKey)
-    // Optimized token budget to speed up response time without truncation
-    const tokenBudget = Math.min(4096, Math.max(1200, numberOfDays * 400 + 800))
+    const prompt = buildPrompt(destination, startDate, endDate, interests, budget, numberOfDays)
 
-    const model = client.getGenerativeModel({
-      model: GEMINI_MODEL,
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: tokenBudget,
-        responseMimeType: "application/json",
+    let activeStream: any = null
+    let usedModel: string = ""
+    let lastError: any = null
+    let hitQuota = false
+
+    // Try primary model then fallback models in order
+    for (const modelName of FALLBACK_MODELS) {
+      try {
+        console.log(`[generate-itinerary] Attempting generation with model "${modelName}"...`)
+        const model = client.getGenerativeModel({
+          model: modelName,
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 8192,
+            responseMimeType: "application/json",
+          },
+        })
+
+        const resultStream = await model.generateContentStream(prompt)
+        activeStream = resultStream.stream
+        usedModel = modelName
+        console.log(`[generate-itinerary] Stream connection successful with model "${modelName}".`)
+        break
+      } catch (err: any) {
+        lastError = err
+        const errMsg = err?.message || String(err)
+        console.warn(`[generate-itinerary] Model "${modelName}" failed: ${errMsg}`)
+
+        if (
+          errMsg.includes("429") ||
+          errMsg.includes("quota") ||
+          errMsg.includes("RESOURCE_EXHAUSTED") ||
+          errMsg.includes("Too Many Requests")
+        ) {
+          hitQuota = true
+        }
+      }
+    }
+
+    if (!activeStream) {
+      console.error("[generate-itinerary] All fallback models failed:", lastError)
+      if (hitQuota) {
+        return new Response(
+          JSON.stringify({
+            error: "Daily Quota Exceeded",
+            details: "The AI free tier quota limit is reached across available models. Please wait a short while or try again later.",
+            isQuota: true,
+          }),
+          { status: 429, headers: { "Content-Type": "application/json" } },
+        )
+      }
+
+      return new Response(
+        JSON.stringify({
+          error: "Failed to generate itinerary",
+          details: lastError?.message || "All AI models failed to respond. Please try again in a moment.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      )
+    }
+
+    let accumulatedText = ""
+    const encoder = new TextEncoder()
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of activeStream) {
+            const chunkText = chunk.text()
+            accumulatedText += chunkText
+            controller.enqueue(encoder.encode(chunkText))
+          }
+          controller.close()
+
+          // Cache on successful completion
+          if (accumulatedText.trim().length > 0) {
+            itineraryCache.set(cacheKey, {
+              text: accumulatedText,
+              timestamp: Date.now(),
+            })
+            console.log(`[generate-itinerary] Successfully generated & cached result for "${destination}" using "${usedModel}".`)
+          }
+        } catch (error) {
+          console.error("[generate-itinerary] Streaming error during output:", error)
+          controller.error(error)
+        }
       },
     })
 
-    const prompt = buildPrompt(destination, startDate, endDate, interests, budget, numberOfDays)
-
-    async function generateAndValidate(timeoutMs: number) {
-      const attemptStart = Date.now()
-      const result = await withTimeout(
-        model.generateContent(prompt),
-        timeoutMs,
-        "Gemini API request timed out",
-      )
-      let responseText = result.response.text().trim()
-      if (responseText.startsWith("```")) {
-        responseText = responseText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
-      }
-      const parsed = JSON.parse(responseText) // throws if invalid JSON
-      if (!Array.isArray(parsed.days) || parsed.days.length !== numberOfDays) {
-        throw new Error(`Expected ${numberOfDays} days, got ${parsed.days?.length ?? "invalid"}`)
-      }
-      console.log(`[generate-itinerary] Model generated response in ${Date.now() - attemptStart}ms`)
-      return parsed
-    }
-
-    let itineraryData
-    const firstAttemptBudget = Math.max(2000, Math.min(18000, TOTAL_BUDGET_MS - (Date.now() - startTime)))
-
-    try {
-      itineraryData = await generateAndValidate(firstAttemptBudget)
-    } catch (firstError) {
-      const elapsed = Date.now() - startTime
-      const remainingMs = TOTAL_BUDGET_MS - elapsed
-      console.warn(`[generate-itinerary] First attempt failed after ${elapsed}ms:`, firstError)
-
-      // Retry only if at least 6.0s remain in the budget
-      if (remainingMs >= 6000) {
-        console.log(`[generate-itinerary] Retrying with remaining budget of ${remainingMs}ms...`)
-        try {
-          itineraryData = await generateAndValidate(remainingMs - 1000)
-        } catch (secondError) {
-          console.error("[generate-itinerary] Retry also failed:", secondError)
-          return new Response(
-            JSON.stringify({
-              error: "Failed to generate itinerary",
-              details: "The AI took too long or had trouble creating this itinerary. Please try again.",
-            }),
-            { status: 504, headers: { "Content-Type": "application/json" } },
-          )
-        }
-      } else {
-        console.warn(`[generate-itinerary] Insufficient time remaining (${remainingMs}ms) for retry. Returning timeout.`)
-        return new Response(
-          JSON.stringify({
-            error: "Request timed out",
-            details: "The AI took too long to generate your itinerary. Please try again.",
-          }),
-          { status: 504, headers: { "Content-Type": "application/json" } },
-        )
-      }
-    }
-
-    const totalDuration = Date.now() - startTime
-    console.log(`[generate-itinerary] Total execution completed successfully in ${totalDuration}ms`)
-
-    return Response.json(itineraryData)
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Model-Used": usedModel,
+      },
+    })
   } catch (error) {
     console.error("[generate-itinerary] API Error:", error)
     const errorMessage = error instanceof Error ? error.message : "Unknown error"
