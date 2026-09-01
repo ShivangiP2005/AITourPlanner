@@ -1,8 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import { GEMINI_MODEL } from "@/lib/gemini"
 
-// Setting maxDuration to 60 is future-proof for Pro plans, but note that the
-// Vercel Hobby (free) plan strictly enforces a 10-second serverless execution limit.
+// Export maxDuration = 60 for Vercel functions (Fluid compute allows up to 60s/300s)
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
 
@@ -19,7 +18,7 @@ CRITICAL RULE: The trip is EXACTLY ${numberOfDays} day${numberOfDays > 1 ? "s" :
 MUST contain EXACTLY ${numberOfDays} object${numberOfDays > 1 ? "s" : ""} — no more, no fewer. This applies even if ${numberOfDays} is
 very small (1 or 2). Do not pad the trip with extra days that were not requested.
 
-Return ONLY valid JSON matching exactly this structure, no markdown, no extra text, no trailing commas:
+Keep descriptions punchy and concise (1-2 sentences per activity) for fast and reliable generation. Return ONLY valid JSON matching exactly this structure, no markdown, no extra text, no trailing commas:
 
 {
   "destination": "string",
@@ -29,9 +28,9 @@ Return ONLY valid JSON matching exactly this structure, no markdown, no extra te
       "day": 1,
       "title": "short title for the day",
       "activities": [
-        { "time": "9:00 AM", "activity": "description", "location": "place name" }
+        { "time": "9:00 AM", "activity": "concise description", "location": "place name" }
       ],
-      "restaurant": { "name": "string", "cuisine": "string", "estimatedCost": "string e.g. €20-30" },
+      "restaurant": { "name": "string", "cuisine": "string", "estimatedCost": "e.g. €20-30" },
       "tip": "one practical tip for this day"
     }
   ],
@@ -42,7 +41,7 @@ Return ONLY valid JSON matching exactly this structure, no markdown, no extra te
   ]
 }
 
-Remember: "days" array length must be EXACTLY ${numberOfDays}. Each day should have 2-4 activities. Be concise.`
+Remember: "days" array length must be EXACTLY ${numberOfDays}. Each day should have 2-3 activities. Be concise.`
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMsg = "Request timed out"): Promise<T> {
@@ -56,8 +55,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMsg = "Re
 
 export async function POST(request: Request) {
   const startTime = Date.now()
-  // Total time budget (8.5s) to safely return clean JSON before Vercel's 10s Hobby limit
-  const TOTAL_BUDGET_MS = 8500
+  // Total time budget of 25s safely within Vercel's configured duration
+  const TOTAL_BUDGET_MS = 25000
 
   try {
     if (!apiKey) {
@@ -105,9 +104,11 @@ export async function POST(request: Request) {
       )
     }
 
+    console.log(`[generate-itinerary] Generating ${numberOfDays}-day trip to "${destination}" using model "${GEMINI_MODEL}"...`)
+
     const client = new GoogleGenerativeAI(apiKey)
-    // Give real headroom so short trips don't get truncated if the model overshoots
-    const tokenBudget = Math.min(8000, Math.max(2000, numberOfDays * 600 + 1200))
+    // Optimized token budget to speed up response time without truncation
+    const tokenBudget = Math.min(4096, Math.max(1200, numberOfDays * 400 + 800))
 
     const model = client.getGenerativeModel({
       model: GEMINI_MODEL,
@@ -121,6 +122,7 @@ export async function POST(request: Request) {
     const prompt = buildPrompt(destination, startDate, endDate, interests, budget, numberOfDays)
 
     async function generateAndValidate(timeoutMs: number) {
+      const attemptStart = Date.now()
       const result = await withTimeout(
         model.generateContent(prompt),
         timeoutMs,
@@ -134,25 +136,25 @@ export async function POST(request: Request) {
       if (!Array.isArray(parsed.days) || parsed.days.length !== numberOfDays) {
         throw new Error(`Expected ${numberOfDays} days, got ${parsed.days?.length ?? "invalid"}`)
       }
+      console.log(`[generate-itinerary] Model generated response in ${Date.now() - attemptStart}ms`)
       return parsed
     }
 
     let itineraryData
-    const firstAttemptBudget = Math.max(1000, Math.min(7000, TOTAL_BUDGET_MS - (Date.now() - startTime)))
+    const firstAttemptBudget = Math.max(2000, Math.min(18000, TOTAL_BUDGET_MS - (Date.now() - startTime)))
 
     try {
-      // First attempt with up to 7.0s timeout
       itineraryData = await generateAndValidate(firstAttemptBudget)
     } catch (firstError) {
       const elapsed = Date.now() - startTime
       const remainingMs = TOTAL_BUDGET_MS - elapsed
       console.warn(`[generate-itinerary] First attempt failed after ${elapsed}ms:`, firstError)
 
-      // Only retry if we have meaningful time left (at least 2.5 seconds)
-      if (remainingMs >= 2500) {
+      // Retry only if at least 6.0s remain in the budget
+      if (remainingMs >= 6000) {
         console.log(`[generate-itinerary] Retrying with remaining budget of ${remainingMs}ms...`)
         try {
-          itineraryData = await generateAndValidate(remainingMs - 300)
+          itineraryData = await generateAndValidate(remainingMs - 1000)
         } catch (secondError) {
           console.error("[generate-itinerary] Retry also failed:", secondError)
           return new Response(
@@ -164,7 +166,7 @@ export async function POST(request: Request) {
           )
         }
       } else {
-        console.warn(`[generate-itinerary] Insufficient time remaining (${remainingMs}ms) for retry within 10s budget.`)
+        console.warn(`[generate-itinerary] Insufficient time remaining (${remainingMs}ms) for retry. Returning timeout.`)
         return new Response(
           JSON.stringify({
             error: "Request timed out",
@@ -174,6 +176,9 @@ export async function POST(request: Request) {
         )
       }
     }
+
+    const totalDuration = Date.now() - startTime
+    console.log(`[generate-itinerary] Total execution completed successfully in ${totalDuration}ms`)
 
     return Response.json(itineraryData)
   } catch (error) {
