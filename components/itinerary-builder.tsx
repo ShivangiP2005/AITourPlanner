@@ -24,25 +24,45 @@ export default function ItineraryBuilder() {
     setError(null)
     setDestination(formData.destination)
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+    }, 20000) // 20 second client-side timeout
+
     try {
       const response = await fetch("/api/generate-itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
+        signal: controller.signal,
       })
 
-      const data = await response.json()
+      let data: any
+      try {
+        data = await response.json()
+      } catch {
+        throw new Error(
+          response.status === 504 || response.status === 408
+            ? "This is taking too long, please try again."
+            : `Server returned error (${response.status}). Please try again.`
+        )
+      }
 
       if (!response.ok) {
         throw new Error(data.details || data.error || "Failed to generate itinerary")
       }
 
       setItinerary(data as ItineraryData)
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Failed to generate itinerary"
-      setError(errorMessage)
+    } catch (err: any) {
+      if (err?.name === "AbortError" || controller.signal.aborted) {
+        setError("This is taking too long, please try again.")
+      } else {
+        const errorMessage = err instanceof Error ? err.message : "Failed to generate itinerary"
+        setError(errorMessage)
+      }
       setItinerary(null)
     } finally {
+      clearTimeout(timeoutId)
       setLoading(false)
     }
   }

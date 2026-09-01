@@ -1,5 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
 
+export const maxDuration = 60
+export const dynamic = "force-dynamic"
+
 const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
 
 function buildPrompt(destination: string, startDate: string, endDate: string, interests: string[], budget: string, numberOfDays: number) {
@@ -37,6 +40,15 @@ Return ONLY valid JSON matching exactly this structure, no markdown, no extra te
 }
 
 Remember: "days" array length must be EXACTLY ${numberOfDays}. Each day should have 2-4 activities. Be concise.`
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMsg = "Request timed out"): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(timeoutMsg)), timeoutMs),
+    ),
+  ])
 }
 
 export async function POST(request: Request) {
@@ -101,9 +113,16 @@ export async function POST(request: Request) {
 
     const prompt = buildPrompt(destination, startDate, endDate, interests, budget, numberOfDays)
 
-    async function generateAndValidate() {
-      const result = await model.generateContent(prompt)
-      const responseText = result.response.text()
+    async function generateAndValidate(timeoutMs = 12000) {
+      const result = await withTimeout(
+        model.generateContent(prompt),
+        timeoutMs,
+        "Gemini API request timed out",
+      )
+      let responseText = result.response.text().trim()
+      if (responseText.startsWith("```")) {
+        responseText = responseText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
+      }
       const parsed = JSON.parse(responseText) // throws if invalid JSON
       if (!Array.isArray(parsed.days) || parsed.days.length !== numberOfDays) {
         throw new Error(`Expected ${numberOfDays} days, got ${parsed.days?.length ?? "invalid"}`)
@@ -113,26 +132,28 @@ export async function POST(request: Request) {
 
     let itineraryData
     try {
-      itineraryData = await generateAndValidate()
+      // First attempt: capped at 12s
+      itineraryData = await generateAndValidate(12000)
     } catch (firstError) {
-      console.error("[v0] First attempt failed, retrying once:", firstError)
+      console.error("[generate-itinerary] First attempt failed, retrying once:", firstError)
       try {
-        itineraryData = await generateAndValidate()
+        // Second attempt: capped at 12s
+        itineraryData = await generateAndValidate(12000)
       } catch (secondError) {
-        console.error("[v0] Retry also failed:", secondError)
+        console.error("[generate-itinerary] Retry also failed:", secondError)
         return new Response(
           JSON.stringify({
             error: "Failed to generate itinerary",
-            details: "The AI had trouble creating this itinerary. Please try again.",
+            details: "The AI took too long or had trouble creating this itinerary. Please try again.",
           }),
-          { status: 500, headers: { "Content-Type": "application/json" } },
+          { status: 504, headers: { "Content-Type": "application/json" } },
         )
       }
     }
 
     return Response.json(itineraryData)
   } catch (error) {
-    console.error("[v0] API Error:", error)
+    console.error("[generate-itinerary] API Error:", error)
     const errorMessage = error instanceof Error ? error.message : "Unknown error"
     return new Response(
       JSON.stringify({ error: "Failed to generate itinerary", details: errorMessage }),
